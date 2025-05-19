@@ -1,0 +1,569 @@
+---
+title: "OnlineRetailSalesPrediction"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-10-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, eval=TRUE}
+#LIBRARIES
+library(mice)
+library(tidyverse)
+library(caret)
+library(AppliedPredictiveModeling)
+library(MASS)
+library(dplyr)
+library(car)
+library(corrr)
+library(car)
+library(Metrics)
+library(ggplot2)
+library(earth)
+library(rgl)
+library(mlbench)
+library(lubridate)
+library(qpcR)
+library(glmnet)
+library(e1071)
+
+Test <- read.csv("C:/Users/syedi/OneDrive/Desktop/IDA/Assignments/HW 6/Test.csv")
+Train <- read.csv("C:/Users/syedi/OneDrive/Desktop/IDA/Assignments/HW 6/Train.csv")
+
+```
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, eval=FALSE}
+#############################################################################
+# a) Preparation & Modeling
+# i) Data visualization
+#############################################################################
+
+# Traffic data dependency on ‘browser’ column
+ggplot(data=Train %>%
+         count(browser, sort=TRUE) %>%
+         mutate(tier=row_number()) %>%
+         filter(tier<6),
+       aes(factor(browser, level=browser), n)) +
+  geom_col(fill="#f68050", alpha=0.8) +
+  labs(title="Top 5 Browsers from Traffic Data", x="Browsers", y="Traffic") +
+  theme_classic()
+
+
+#Traffic data dependency on Continent variable
+ggplot(data=Train %>% count(continent, sort=TRUE),
+       aes(factor(continent,level=continent), n)) +
+  geom_col(fill="#515151", alpha=0.8) +
+  labs(title="Continents Sorted by the Number of Traffic",
+       x="Continents", y="Traffic") +
+  theme_classic()
+
+# Traffic data dependency on Bounces
+Train$bounces <- as.logical(Train$bounces)
+
+ggplot(data=Train) +
+  geom_bar(aes(channelGrouping, fill=bounces), alpha=0.8) +
+  labs(title="Bounces according to channels", x="Channels", y="Traffic") +
+  theme_classic()
+
+# Density plot of ‘visitStarttime’
+ggplot(data=Train) +
+  geom_density(aes(visitStartTime)) +
+  labs(title="Density function of 'visitStartTime'", y="Density") +
+  theme_classic()
+
+# Variance analysis
+# normality test, revenue data doesn't follow the normality
+shapiro.test(sample(Train$revenue, 5000))
+
+# therefore, we run kruskal wallis test on the data
+kruskal.test(revenue~deviceCategory, data=Train)
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, eval=FALSE}
+#############################################################################
+# (ii) Data Preparation
+#  missing value imputation
+#############################################################################
+
+# replacing blank by NA and estimating missing value percentage
+Train <- replace(Train, Train=="", NA)
+
+# make a table to see how many values of each variable is missing
+missingPercent <- data_frame(
+  "Variables"=colnames(Train),
+  "Missing Values (%)"=paste(
+    round(as.numeric(colSums(is.na(Train)))/nrow(Train)*100, 2), "%"))
+missingPercent
+
+# deleting few non-essential columns and columns with high % missing values
+Train <- Train |>
+  dplyr::select(-sessionId, -region, -metro, -city, -networkDomain,
+                -campaign, -keyword, -adContent, -adwordsClickInfo.page,
+                -adwordsClickInfo.slot, -adwordsClickInfo.gclId,
+                -adwordsClickInfo.adNetworkType, -adwordsClickInfo.isVideoAd,
+                -referralPath, -topLevelDomain)
+
+
+# data processing
+Train <- Train |>
+  dplyr::mutate(
+
+    # convert the column including NA into logical (TRUE/FALSE)
+    bounces   = replace_na(bounces, FALSE),
+    newVisits = replace_na(newVisits, 0),
+
+    # Change the format into number & replace the original column
+    visitStartTime = hour(
+      lubridate::as_datetime(Train$visitStartTime)),
+
+    # Changing Date to month
+    date = month(Train$date),
+
+    # Changing from seconds to weeks
+    timeSinceLastVisit = Train$timeSinceLastVisit/604800
+
+  )
+
+# creating new categories based on source
+#source
+Train %>% dplyr::select(source) %>% count(source, sort=T)
+Train <- Train %>%
+  mutate(
+    source1 = case_when(
+      str_detect(source, "google") ~ "google",
+      str_detect(source, "youtube")  ~ "youtube"),
+    )
+
+Train$source1 <- replace_na(Train$source1, "others")
+Train %>% dplyr::select(source1) %>% count(source1, sort=T)
+
+Train <- Train |>
+  dplyr::select(-source)
+
+
+#browser
+Train %>% dplyr::select(browser) %>% count(browser, sort=T)
+Train <- Train %>%
+  mutate(
+    browser1 = case_when(
+      str_detect(browser, "Safari") ~ "safari",
+      str_detect(browser, "iPhone") ~ "safari",
+      str_detect(browser, "Chrome")  ~ "chrome",),
+    )
+
+Train$browser1 <- replace_na(Train$browser1, "others")
+Train <- Train |>
+  dplyr::select(-browser)
+
+
+#operatingSystem
+Train <- Train %>%
+  mutate(
+    operatingSystem1 = case_when(
+      str_detect(operatingSystem, "Macintosh") ~ "mac",
+      str_detect(operatingSystem, "Windows") ~ "windows",
+      str_detect(operatingSystem, "Windows Phone") ~ "windows",
+      str_detect(operatingSystem, "Android")  ~ "android",
+      str_detect(operatingSystem, "Samsung") ~ "android",
+      str_detect(operatingSystem, "iOS") ~ "ios",)
+    )
+
+Train$operatingSystem1 <- replace_na(Train$operatingSystem1, "others")
+Train$operatingSystem1 <- as.factor(Train$operatingSystem1)
+
+Train <- Train |>
+  dplyr::select(-operatingSystem)
+
+
+# Turning the categorical/character variable into factors
+Train$channelGrouping <- as.factor(Train$channelGrouping)
+Train$browser1 <- as.factor(Train$browser1)
+Train$operatingSystem <- as.factor(Train$operatingSystem)
+Train$deviceCategory <- as.factor(Train$deviceCategory)
+Train$continent <- as.factor(Train$continent)
+Train$source1 <- as.factor(Train$source1)
+Train$medium <- as.factor(Train$medium)
+
+# find the names of columns with NA values
+names(which(colSums(is.na(Train) ) >0) )
+
+# apply the median value to all the missing values
+median = Train |>
+  dplyr::select(pageviews) |>
+  apply(2, median, na.rm = TRUE)
+
+# change all the NA values to the average
+Train <- Train |>
+  dplyr::mutate(
+    pageviews = dplyr::if_else(is.na(pageviews), median[1], pageviews),
+  )
+
+# deselect some columns with NA values
+Train <- Train |>
+  dplyr::select(-country, -subContinent, -continent, -medium)
+
+
+Train <- Train |>
+  dplyr::mutate(
+    # make pageviews a int
+    pageviews = as.integer(Train$pageviews),
+
+    # change the category column to numeric
+    channelGrouping = as.numeric(factor(as.matrix(channelGrouping))),
+  )
+
+
+TrainNumeric <- tibble(
+  dplyr::select(Train, is.numeric))
+
+# remove duplicates from numeric data
+TrainNumeric <- aggregate(TrainNumeric, list(TrainNumeric$custId), sum)
+
+
+# remove duplicates from categorical data :browser
+x <- unique(Train %>% dplyr::select(custId, browser1))
+x <- x[!duplicated(x$custId), ]
+TrainNew <- cbind(TrainNumeric, x$browser1)
+
+# remove duplicates from categorical data :deviceCategory
+x <- unique(Train %>% dplyr::select(custId, deviceCategory))
+x <- x[!duplicated(x$custId), ]
+TrainNew <- cbind(TrainNew, x$deviceCategory)
+
+
+# remove duplicates from categorical data :source1
+x <- unique(Train %>% dplyr::select(custId, source1))
+x <- x[!duplicated(x$custId), ]
+TrainNew <- cbind(TrainNew, x$source1)
+
+# remove duplicates from categorical data :operatingSystem1
+x <- unique(Train %>% dplyr::select(custId, operatingSystem1))
+x <- x[!duplicated(x$custId), ]
+TrainNew <- cbind(TrainNew, x$operatingSystem1)
+
+TrainNew <- TrainNew |>
+  dplyr::rename(browser='x$browser1') |>
+  dplyr::rename(operatingSystem='x$operatingSystem1') |>
+  dplyr::rename(source='x$source1') |>
+  dplyr::rename(deviceCategory='x$deviceCategory') |>
+  dplyr::mutate(
+    # find the log of revenue
+    logRevenue = log(revenue + 1)
+  ) |>
+  dplyr::select(-custId,-Group.1)
+
+
+# deselect the revenue and change Inf values to 0
+TrainNew$revenue <- NULL
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, eval=FALSE}
+# replacing blank by NA and estimating missing value percentage
+Test <- replace(Test, Test=="", NA)
+
+# make a table to see how many values of each variable is missing
+missingPercent <- data_frame(
+  "Variables"=colnames(Test),
+  "Missing Values (%)"=paste(
+    round(as.numeric(colSums(is.na(Test)))/nrow(Test)*100, 2), "%"))
+missingPercent
+
+# deleting few non-essential columns and columns with high % missing values
+Test <- Test |>
+  dplyr::select(-sessionId, -region, -metro, -city, -networkDomain,
+                -campaign, -keyword, -adContent, -adwordsClickInfo.page,
+                -adwordsClickInfo.slot, -adwordsClickInfo.gclId,
+                -adwordsClickInfo.adNetworkType, -adwordsClickInfo.isVideoAd,
+                -referralPath, -topLevelDomain)
+
+
+# data processing
+Test <- Test |>
+  dplyr::mutate(
+
+    # convert the column including NA into logical (TRUE/FALSE)
+    bounces   = replace_na(bounces, FALSE),
+    newVisits = replace_na(newVisits, 0),
+
+    # Change the format into number & replace the original column
+    visitStartTime = hour(
+      lubridate::as_datetime(Test$visitStartTime)),
+
+    # Changing Date to month
+    date = month(Test$date),
+
+    # Changing from seconds to weeks
+    timeSinceLastVisit = Test$timeSinceLastVisit/604800
+
+  )
+
+# creating new categories based on source
+#source
+Test %>% dplyr::select(source) %>% count(source, sort=T)
+Test <- Test %>%
+  mutate(
+    source1 = case_when(
+      str_detect(source, "google") ~ "google",
+      str_detect(source, "youtube")  ~ "youtube"),
+    )
+
+Test$source1 <- replace_na(Test$source1, "others")
+Test %>% dplyr::select(source1) %>% count(source1, sort=T)
+
+Test <- Test |>
+  dplyr::select(-source)
+
+
+#browser
+Test %>% dplyr::select(browser) %>% count(browser, sort=T)
+Test <- Test %>%
+  mutate(
+    browser1 = case_when(
+      str_detect(browser, "Safari") ~ "safari",
+      str_detect(browser, "iPhone") ~ "safari",
+      str_detect(browser, "Chrome")  ~ "chrome",),
+    )
+
+Test$browser1 <- replace_na(Test$browser1, "others")
+Test <- Test |>
+  dplyr::select(-browser)
+
+
+#operatingSystem
+Test <- Test %>%
+  mutate(
+    operatingSystem1 = case_when(
+      str_detect(operatingSystem, "Macintosh") ~ "mac",
+      str_detect(operatingSystem, "Windows") ~ "windows",
+      str_detect(operatingSystem, "Windows Phone") ~ "windows",
+      str_detect(operatingSystem, "Android")  ~ "android",
+      str_detect(operatingSystem, "Samsung") ~ "android",
+      str_detect(operatingSystem, "iOS") ~ "ios",)
+    )
+
+Test$operatingSystem1 <- replace_na(Test$operatingSystem1, "others")
+Test$operatingSystem1 <- as.factor(Test$operatingSystem1)
+
+Test <- Test |>
+  dplyr::select(-operatingSystem)
+
+
+# Turning the categorical/character variable into factors
+Test$channelGrouping <- as.factor(Test$channelGrouping)
+Test$browser1 <- as.factor(Test$browser1)
+Test$operatingSystem <- as.factor(Test$operatingSystem)
+Test$deviceCategory <- as.factor(Test$deviceCategory)
+Test$continent <- as.factor(Test$continent)
+Test$source1 <- as.factor(Test$source1)
+Test$medium <- as.factor(Test$medium)
+
+# find the names of columns with NA values
+names(which(colSums(is.na(Test) ) >0) )
+
+# apply the median value to all the missing values
+median = Test |>
+  dplyr::select(pageviews) |>
+  apply(2, median, na.rm = TRUE)
+
+# change all the NA values to the average
+Test <- Test |>
+  dplyr::mutate(
+    pageviews = dplyr::if_else(is.na(pageviews), median[1], pageviews),
+  )
+
+# deselect some columns with NA values
+Test <- Test |>
+  dplyr::select(-operatingSystem, -country, -subContinent, -continent, -medium)
+
+
+Test <- Test |>
+  dplyr::mutate(
+    # make pageviews a int
+    pageviews = as.integer(Test$pageviews),
+
+    # change the category column to numeric
+    channelGrouping = as.numeric(factor(as.matrix(channelGrouping))),
+  )
+
+TestNumeric <- tibble(
+  dplyr::select(Test, is.numeric))
+
+# remove duplicates from numeric data
+TestNumeric <- aggregate(TestNumeric, list(TestNumeric$custId), sum)
+
+
+# remove duplicates from categorical data :browser
+x <- unique(Test %>% dplyr::select(custId, browser1))
+x <- x[!duplicated(x$custId), ]
+TestNew <- cbind(TestNumeric, x$browser1)
+
+# remove duplicates from categorical data :deviceCategory
+x <- unique(Test %>% dplyr::select(custId, deviceCategory))
+x <- x[!duplicated(x$custId), ]
+TestNew <- cbind(TestNew, x$deviceCategory)
+
+
+# remove duplicates from categorical data :source1
+x <- unique(Test %>% dplyr::select(custId, source1))
+x <- x[!duplicated(x$custId), ]
+TestNew <- cbind(TestNew, x$source1)
+
+# remove duplicates from categorical data :operatingSystem1
+x <- unique(Test %>% dplyr::select(custId, operatingSystem1))
+x <- x[!duplicated(x$custId), ]
+TestNew <- cbind(TestNew, x$operatingSystem1)
+
+# remove columns
+TestNew <- TestNew |>
+  dplyr::rename(browser='x$browser1') |>
+  dplyr::rename(operatingSystem='x$operatingSystem1') |>
+  dplyr::rename(source='x$source1') |>
+  dplyr::rename(deviceCategory='x$deviceCategory') |>
+  dplyr::select(-custId) |>
+  dplyr::rename(custId=Group.1)
+```
+
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, eval=FALSE}
+
+# create the OLS model
+ols_fit_1 <- lm(data = TrainNew, logRevenue ~ .,)
+
+summary(ols_fit_1)
+
+ols_fit_2 <- lm(data = TrainNew, logRevenue ~ date + visitStartTime + visitNumber +
+                  timeSinceLastVisit + pageviews + newVisits + browser +
+                  operatingSystem + source)
+
+summary(ols_fit_2)
+
+ols_fit_3 <- lm(data = TrainNew, logRevenue ~ visitStartTime + visitNumber +
+                  timeSinceLastVisit + pageviews + newVisits + browser +
+                  operatingSystem)
+
+summary(ols_fit_3)
+```
+
+```{r, warning=FALSE, message=FALSE, echo=TRUE, eval=FALSE}
+# Create a PLS model
+# Define training control
+train_control <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+
+# Train the model
+model_pls <- train(logRevenue ~ .,
+                   data = TrainNew, trControl = train_control, method = "pls",
+                   tuneLength = 10, metric = "RMSE" )
+
+model_pls
+summary(model_pls)
+
+RMSE(model_pls)
+
+```
+
+```{r, warning=FALSE, message=FALSE, echo=TRUE, eval=FALSE}
+# Create a LASSO model
+
+
+# Model Building :Lasso Regression
+set.seed(123)
+control = trainControl(method ="cv", number = 5)
+Grid_la_reg = expand.grid(alpha = 1,
+              lambda = seq(0.001, 0.1, by = 0.0002))
+
+# Training lasso regression model
+lasso_model = train(logRevenue ~ ., data = TrainNew,
+                    method = "glmnet",
+                    trControl = control,
+                    tuneGrid = Grid_la_reg
+                    )
+lasso_model
+
+RMSE(lasso_model)
+```
+
+
+```{r, warning=FALSE, message=FALSE, echo=TRUE, eval=FALSE}
+# Create a MARS model
+
+
+# Model Building :Lasso Regression
+set.seed(123)
+
+# Training lasso regression model
+mars_model = earth(logRevenue ~ ., data = TrainNew, degree = 3, nk=4, pmethod = "backward")
+mars_model
+
+RMSE(mars_model)
+
+# Other model
+#create a tuning grid
+hyper_grid <- expand.grid(degree = 1:3,
+                          nprune = seq(2, 50, length.out = 10) %>%
+                          floor())
+
+set.seed(123)
+
+mars_model_2 <- train(logRevenue ~ ., data = TrainNew, method = "earth",
+                      metric = "RMSE",
+                      trControl = trainControl(method = "cv", number = 10),
+                      tuneGrid = hyper_grid)
+
+mars_model_2
+RMSE(mars_model_2)
+
+# other model
+mars_model_3 <- train(logRevenue ~ ., data = TrainNew, method = "earth",
+                      metric = "RMSE",
+                      trControl = trainControl(method = "cv", number = 5),
+                      tuneGrid = hyper_grid)
+
+mars_model_3
+RMSE(mars_model_3)
+
+```
+
+```{r, warning=FALSE, message=FALSE, echo=TRUE, eval=FALSE}
+# SVM model
+svm_model <- svm(logRevenue ~ ., data = TrainNew)
+svm_model
+
+RMSE(svm_model)
+
+
+# perform a grid search
+tuneResult = tune(svm, logRevenue ~ .,  data = TrainNew,
+                  ranges = list(epsilon = seq(0.05,0.09,0.01), cost = 2^(5:8))
+                  )
+
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, eval=FALSE}
+# PREDICTIONS
+# predict with the Train and Test data
+mars_pred <- predict(mars_model_2, TrainNew)
+mars_pred <- predict(mars_model_2, newdata = TestNew)
+
+# store the predicted output with the respective custID
+submission_mars <- data.frame(custId=TestNew$custId, predRevenue=mars_pred)
+
+# rename column to predRevenue
+submission_mars <- submission_mars %>%
+  rename(predRevenue = y)
+
+# change all the negative values in the predicted revenue to 0
+submission_mars <- submission_mars |>
+  dplyr::mutate(
+    predRevenue = dplyr::if_else(0 > predRevenue, 0, predRevenue)
+  )
+
+# Replace "submission_mars" with the actual name of your dataframe
+write.csv(submission_mars, file = "sampleSubmission_2.csv", row.names = FALSE)
+```
+
