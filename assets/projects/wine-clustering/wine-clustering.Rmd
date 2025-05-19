@@ -1,0 +1,208 @@
+---
+title: "Cluster Analysis on Wine Data"
+output: word_document
+date: "2023-12-05"
+---
+
+
+
+## Description of Data 
+### The data which I chose is the Wine Data set. The dataset consists of various measurements related to different
+### chemical properties which are found in a variety types of wine.The data set comprises of 178 observations, each observation in the data set corresponds
+### to an each wine sample. The data set has 13 features which are used to represent the chemical components wine. There are 13 numeric variables which like
+### alcohol, malicacid, totalphenols, and more.There is a categorical variable "class" which indicates the wine class.
+
+##  The data is taken from the UCI Machine Learning Repository. 
+### URL - https://archive.ics.uci.edu/dataset/109/wine
+
+
+# Task 2
+```{r}
+library(ggplot2)
+library(cluster)
+#install.packages("useful")
+library(useful)
+#install.packages("NbClust")
+library(NbClust)
+library(rgl)
+#install.packages("factoextra")
+library(factoextra)
+library(corrplot)
+#install.packages("PerformanceAnalytics")
+library(PerformanceAnalytics)
+
+```
+
+
+
+```{r}
+wine_data <- read.table("wine.data", header = FALSE, sep = ",")
+
+# Assign column names
+col_names <- c("Class", "Alcohol", "MalicAcid", "Ash", "AlcalinityOfAsh", "Magnesium", 
+               "TotalPhenols", "Flavanoids", "NonflavanoidPhenols", "Proanthocyanins",
+               "ColorIntensity", "Hue", "OD280_OD315", "Proline")
+
+colnames(wine_data) <- col_names
+
+wineScaled<- scale(wine_data)
+
+wineScaled<- as.data.frame(wineScaled)
+```
+
+# Correlation Plot
+```{r}
+
+cormat<-cor(wineScaled)
+chart.Correlation(cormat, histogram= TRUE , pch = 15)
+
+x<-as.factor(wineScaled$Class)
+levels(x)
+
+```
+
+# K - means
+```{r}
+kmeans_model2 <- kmeans(wineScaled, centers = 6, nstart = 10)
+
+fviz_cluster(kmeans_model2, data = wineScaled)
+```
+
+## Determining the optimal k using the elbow method
+
+```{r}
+wssplot <- function(data, nc=15){                    
+  
+  par(mfrow=c(1,2))
+  
+  wss <- NULL  
+  pctExp <-NULL
+  
+  for (k in 1:nc)
+  {
+    kclus <- kmeans(data, centers=k)
+    wss[k] <- kclus$tot.withinss      #store the total within SSE for given k
+    pctExp[k] <- 1-wss[k]/kclus$totss
+  }
+  
+  plot(1:nc, wss, type="b", xlab="Number of Clusters",
+       ylab="Within groups sum of squares")
+  
+  plot(1:nc, pctExp, type="b", xlab="Number of Clusters",
+       ylab="Pct Explained")
+  
+  par(mfrow=c(1,1))
+}
+
+# Plot the elbow plot
+wssplot(wineScaled,nc=10)
+
+fviz_nbclust(wineScaled, kmeans, method= "silhouette")
+
+
+# Determining the optimal {k}
+#based on the Elbow Plot applied above, I can observe from the plot that there is a clear elbow at k=3, which indicates that there is an optimal number of clusters
+optimal_k <- 3
+
+# Perform k-means clustering
+kmeans_model <- kmeans(wineScaled, centers = optimal_k, nstart = 10)
+wine_data$cluster<- as.factor(kmeans_model$cluster)
+table(wine_data$Class, wine_data$cluster)
+# Add cluster assignments to the original data
+wine_data_with_clusters <- cbind(wine_data, Cluster = as.factor(kmeans_model$cluster))
+
+# Print the cluster assignments
+print(wine_data_with_clusters$Cluster)
+
+fviz_cluster(kmeans_model, data= wineScaled)
+
+
+```
+
+# K- Medoid
+```{r}
+pam_model <- pam(wineScaled, k = 3, metric ="euclidean", stand = FALSE)
+
+
+# Add cluster assignments to the original data
+wineData_with_clusters <- cbind(wine_data, Cluster = as.factor(pam_model$clustering))
+
+# Print the cluster assignments
+print(wineData_with_clusters$Cluster)
+
+fviz_cluster(pam_model, data= wineScaled, geom = "point")
+
+
+```
+
+# Hierarchial Clustering
+
+
+```{r}
+dist<-dist(wineScaled,method = "euclidean")
+hclust_model <- hclust(dist, method = "complete")
+
+# Cut the dendrogram to get clusters
+num_clusters <- 3
+
+
+clusters <- cutree(hclust_model, k = num_clusters)
+
+plot(hclust_model, cex= 0.6, hang = -1)
+
+rect.hclust(hclust_model, k=2,border= "blue" )
+
+wineScaled$highclust = as.factor(cutree(hclust_model,k=3))
+
+head(wineScaled)
+
+table(wineScaled$Class, wineScaled$highclust)
+
+# Add cluster assignments to the original data
+winedata_with_clusters <- cbind(wine_data, Cluster = as.factor(clusters))
+
+# Print the cluster assignments
+print(winedata_with_clusters$Cluster)
+
+plot(hclust_model, cex= 0.5, hang = -1)
+
+
+```
+
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
