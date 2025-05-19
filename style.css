@@ -71,8 +71,23 @@ footer {
   margin-top: 2rem;
 }
 
-<section>
-  <h2>About Me</h2>
-  <p>I’m a graduate student in Data Science with a passion for building smart, scalable solutions.</p>
-  <p>Email: srihariboppana05@gmail.com | LinkedIn: <a href="https://www.linkedin.com/in/sri-hari-39b19b1b5/" target="_blank">Connect</a></p>
-</section>
+.tagline {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+.summary {
+  font-size: 1rem;
+  max-width: 600px;
+  margin: 0 auto 1rem auto;
+  color: #e0e0e0;
+}
+
+.linkedin {
+  background-color: #0077b5;
+  margin-top: 0.5rem;
+}
+
+.linkedin:hover {
+  background-color: #005885;
+}
