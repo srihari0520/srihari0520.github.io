@@ -1,47 +1,78 @@
-body {
-  font-family: Arial, sans-serif;
+/* Reset and base styles */
+* {
   margin: 0;
   padding: 0;
-  background: #f4f4f4;
-  color: #333;
+  box-sizing: border-box;
 }
 
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f9f9f9;
+  color: #333;
+  line-height: 1.6;
+}
+
+/* Header styles */
 header {
-  background: #2c3e50;
+  background-color: #4CAF50;
   color: white;
+  padding: 2rem 1rem;
   text-align: center;
+}
+
+.profile-pic {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 1rem;
+}
+
+/* Main content styles */
+main {
   padding: 2rem 1rem;
 }
 
-h1 {
-  margin-bottom: 0.5rem;
-}
-
-main.projects {
-  padding: 2rem;
+.projects {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
 }
 
 .project-card {
-  background: white;
-  padding: 1rem;
+  background-color: white;
+  padding: 1.5rem;
   border-radius: 8px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.project-card h2 {
+  margin-bottom: 0.5rem;
 }
 
 .project-links a {
   display: inline-block;
   margin-right: 1rem;
+  color: #4CAF50;
   text-decoration: none;
-  color: #007acc;
   font-weight: bold;
 }
 
+.project-links a:hover {
+  text-decoration: underline;
+}
+
+/* Footer styles */
 footer {
   text-align: center;
   padding: 1rem;
-  background: #2c3e50;
+  background-color: #4CAF50;
   color: white;
+  margin-top: 2rem;
 }
+
+<section>
+  <h2>About Me</h2>
+  <p>I’m a graduate student in Data Science with a passion for building smart, scalable solutions.</p>
+  <p>Email: srihariboppana05@gmail.com | LinkedIn: <a href="https://www.linkedin.com/in/sri-hari-39b19b1b5/" target="_blank">Connect</a></p>
+</section>
